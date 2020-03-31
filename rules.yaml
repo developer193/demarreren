@@ -1,0 +1,4 @@
+keep_score: True
+auto_card_pick: True
+auto_reshuffle: True
+allow_double: False

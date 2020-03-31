@@ -1,6 +1,11 @@
+import os
 import time
 import logging
 from random import shuffle
+
+import jsons
+import yaml
+
 from app.errors import NotEnoughCardsError, WrongPlayerError
 
 logger = logging.getLogger()
@@ -32,6 +37,7 @@ class Card(object):
         return f"{self.name} of {self.suit}"
 
 
+
 class Player(object):
     def __init__(self, name: str, player_id: str, hand: list = None):
         self.name = name
@@ -52,6 +58,8 @@ class Player(object):
                     self.hand_out_sip()
                 elif game.count % 11 == 0:
                     self.take_sip()
+        else:
+            raise error
 
     def pick_card(self, game) -> tuple:
         """
@@ -59,14 +67,17 @@ class Player(object):
         returns (ok, object, error)
         """
         if not game.stock:
-            return False, self, NotEnoughCardsError
+            if game.rules.get('auto_shuffle', False):
+                self.shuffle_cards(game)
+            else:
+                return False, self, NotEnoughCardsError
         card = game.stock.pop(0)
         self.hand.append(card)
         return True, self, None
 
     def shuffle_cards(self, game):
         """Add discarded cards and shuffle stock"""
-        logger.info("shuffling cars")
+        logger.info("shuffling cards")
         game.stock += game.wastepile[:-1]
         game.wastepile = game.wastepile[-1]
         shuffle(game.stock)
@@ -103,17 +114,17 @@ class Player(object):
 
 
 class Game(object):
-    def __init__(self, stock: list, rules=None, players: list = None):
-        self.rules = rules
+    def __init__(self, stock: list, rules: dict = None,
+                 wastepile: list = None, count: int = None, players: list = None, current_player: Player = None):
+        self.rules: dict = rules
         self.stock: list = stock
-        self.wastepile: list = []
-        self.count: int = 0
-        self.players: list = []
-        self.direction: 1 or -1 = 1
-        if players:
-            for player in players:
-                self.add_player(player)
-        self.current_player: Player = self.players[0] if self.players else None
+        self.wastepile: list = wastepile if wastepile else []
+        self.count: int = count if count else 0
+        self.players: list = players if players else []
+        if current_player:
+            self.current_player: Player = current_player
+        else:
+            self.current_player = self.players[0] if self.players else None
         shuffle(self.stock)
 
     def add_player(self, player) -> tuple:
@@ -140,19 +151,22 @@ class Game(object):
         if self.current_player.player_id != player.player_id:
             return False, self, WrongPlayerError
         self.wastepile.append(card)
-        if card.rank == ACE:
-            value = player.pick_value([1, 11])
-            self.count += value
-        elif card.rank <= NINE:
-            self.count += card.rank
-        elif card.rank == TEN:
-            value = player.pick_value([-10, 10])
-            self.count += value
-        elif card.rank == JACK:
-            self.count = 96
-        elif card.rank == QUEEN:
+        if self.rules.get('play_blind', False):
             pass
-        elif card.rank == KING:
+        else:
+            if card.rank == ACE:
+                value = player.pick_value([1, 11])
+                self.count += value
+            elif card.rank <= NINE:
+                self.count += card.rank
+            elif card.rank == TEN:
+                value = player.pick_value([-10, 10])
+                self.count += value
+            elif card.rank == JACK:
+                self.count = 96
+            elif card.rank == QUEEN:
+                pass
+        if card.rank == KING:
             self.direction = -1 if self.direction == 1 else 1
         if self.count >= 100:
             self.game_over(player)
@@ -167,7 +181,6 @@ class Game(object):
         index = unsafe_index % len(self.players)  # cycle index
         self.current_player = self.players[index]
 
-
     def game_over(self, player):
         logger.info(f"{player.name} lost")
         player.take_drink()
@@ -176,6 +189,17 @@ class Game(object):
             for _ in range(overshot//10):
                 player.hand_out_drink()
         self.count = 0
+
+    def to_json(self) -> jsons:
+        """Creates a JSON object from a Game instance"""
+        data: dict = dict(vars(self))
+        return jsons.dumps(data)
+
+
+def from_json(json: str) -> Game:
+    """Creates a Game instance from a JSON object"""
+    data: dict = jsons.loads(json)
+    return Game(**data)
 
 
 def get_deck(n_decks: int = 1) -> list:
@@ -187,6 +211,16 @@ def get_deck(n_decks: int = 1) -> list:
             for rank in RANKS:
                 deck.append(Card(rank=rank, suit=suit))
     return deck
+
+def get_rules(path) -> dict:
+    if not os.path.exists(path):
+        path = os.path.join('..', path)
+        if not os.path.exists(path):
+            logger.warning("No rules.yaml found")
+            return dict()
+    with open(path) as f:
+        data = yaml.load(f, Loader=yaml.FullLoader)
+    return data
 
 def print_game(game, count: bool = True, stock = True, turn: bool = True, hands: bool = True):
     if count:
@@ -202,7 +236,8 @@ def print_game(game, count: bool = True, stock = True, turn: bool = True, hands:
 
 def cli():
     deck = get_deck()
-    game = Game(stock=deck)
+    rules = get_rules('rules.yaml')
+    game = Game(stock=deck, rules=rules)
     players_input = input("type player names separated by comma: ").split(',')
     for i in range(len(players_input)):
         name = players_input[i].strip()
