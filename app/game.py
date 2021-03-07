@@ -13,30 +13,24 @@ logging.basicConfig(format='%(asctime)s: %(message)s')
 
 logger.setLevel(logging.INFO)
 
+SUITS = ["hearts", "diamonds", "clubs", "spades"]
 RANKS = list(range(1, 14))
 ACE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, TEN, JACK, QUEEN, KING = RANKS
-
+S_RANKS = ["ace", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "jack", "queen", "king"]
+CARDS = {}
 
 class Card(object):
     def __init__(self, rank, suit):
         assert rank in RANKS
+        assert suit in SUITS
         self.rank = rank
         self.suit = suit
-        self.name = str(rank)
-        if rank == ACE:
-            self.name = "ace"
-        elif rank == JACK:
-            self.name = "jack"
-        elif rank == QUEEN:
-            self.name = "queen"
-        elif rank == KING:
-            self.name = "king"
-        self.shorthand = self.name if self.name.isdigit() else self.name[0]
+        self.s_rank = S_RANKS[rank-1]
+        self.name = f"{self.s_rank}_{self.suit}"
+        self.shorthand = str(self.rank) if self.rank not in [ACE, JACK, QUEEN, KING] else self.s_rank[0]
 
     def __str__(self):
-        return f"{self.name} of {self.suit}"
-
-
+        return f"{self.s_rank.title()} of {self.suit.title()}"
 
 class Player(object):
     def __init__(self, name: str, player_id: str, hand: list = None):
@@ -121,6 +115,7 @@ class Game(object):
         self.wastepile: list = wastepile if wastepile else []
         self.count: int = count if count else 0
         self.players: list = players if players else []
+        self.direction = 1
         if current_player:
             self.current_player: Player = current_player
         else:
